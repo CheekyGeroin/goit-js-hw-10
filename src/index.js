@@ -1,52 +1,108 @@
 import './css/styles.css';
+import { Notify } from 'notiflix/build/notiflix-notify-aio';
 import debounce from 'lodash.debounce';
-import cardTemplate from './templates/card-template.hbs';
-import Notiflix from 'notiflix';
+import { fetchCountries } from './js/fetchCountries';
+
 const DEBOUNCE_DELAY = 300;
 
 const refs = {
-  input: document.querySelector('#search-box'),
-  cardInfo: document.querySelector('.country-info'),
+  countriesListEl: document.querySelector('.country-list'),
+  countryInfoEl: document.querySelector('.country-info'),
+  countryInputEl: document.querySelector('#search-box'),
 };
 
-refs.input.addEventListener(
-  'input',
-  debounce(onFetchCountries, DEBOUNCE_DELAY)
-);
+const getCountryName = e => e.target.value.trim().toLowerCase();
 
-function onFetchCountries() {
-  const name = refs.input.value.trim().toLowerCase();
-  name.trim();
-  if (name != ' ') {
-    fetchCountries(name);
-  } else {
-    Notiflix.Notify.warning('Write name of country!');
+const renderSearchResultMarkup = countriesArr => {
+  if (countriesArr.length > 10) {
+    return Promise.reject('too many');
   }
-}
 
-function fetchCountries(name) {
-  fetch(
-    `https://restcountries.com/v3.1/name/${name}?fields=name,capital,languages,population,flags`
-  )
-    .then(r => {
-      return r.json();
-    })
-    .then(createTemplate)
-    .catch(catchError);
-}
+  if (countriesArr.length > 1) {
+    return {
+      type: 'list',
+      markup: countriesArr
+        .map(
+          country =>
+            `<li><span><img src=${country.flags.svg} alt=""></span>${country.name.official}</li>`
+        )
+        .join(''),
+    };
+  }
+  if (countriesArr.length === 1) {
+    const country = countriesArr[0];
+    return {
+      type: 'details',
+      markup: `
+    <h2><span><img src=${country.flags.svg} alt=""></span>${
+        country.name.official
+      }</h2>
+    <p>Capital: ${country.capital}</p>
+    <p>Population: ${country.population}</p>
+    <p>Languages: ${Object.values(country.languages)}</p>    
+    `,
+    };
+  }
+};
 
-function createTemplate(country) {
-  console.log(country);
-  if (country > 10) {
-    Notiflix.Notify.info(
-      'Too many matches found. Please enter a more specific name.'
+const clearResult = () => {
+  refs.countryInfoEl.innerHTML = '';
+  refs.countriesListEl.innerHTML = '';
+};
+
+const addSearchResult = searchResultMarkup => {
+  clearResult();
+
+  if (searchResultMarkup.type === 'list') {
+    refs.countriesListEl.insertAdjacentHTML(
+      'beforeend',
+      searchResultMarkup.markup
     );
-  } else if (country >= 2 && country <= 10) {
-  } else {
-    const markUp = cardTemplate(country);
-    refs.cardInfo.innerHTML = markUp;
+  } else if (searchResultMarkup.type === 'details') {
+    refs.countryInfoEl.insertAdjacentHTML(
+      'beforeend',
+      searchResultMarkup.markup
+    );
   }
-}
-function catchError(error) {
-  Notiflix.Notify.failure('Oops, there is no country with that name');
-}
+};
+
+const alarmToManyCountries = () => {
+  clearResult();
+  Notify.info('Too many matches found. Please enter a more specific name.');
+};
+
+const alarmNotFound = () => {
+  clearResult();
+  Notify.failure('Oops, there is no country with that name');
+};
+
+const errorsHandler = error => {
+  if (error === 'not found') {
+    alarmNotFound();
+    return;
+  }
+  if (error === 'too many') {
+    alarmToManyCountries();
+    return;
+  }
+  console.log(error);
+};
+
+const doSearch = e => {
+  const searchedCountry = getCountryName(e);
+
+  if (searchedCountry === '') {
+    clearResult();
+    return;
+  }
+
+  fetchCountries(searchedCountry)
+    .then(renderSearchResultMarkup)
+    .then(addSearchResult)
+    .catch(errorsHandler);
+};
+
+refs.countryInputEl.addEventListener(
+  'input',
+  debounce(doSearch, DEBOUNCE_DELAY)
+);
